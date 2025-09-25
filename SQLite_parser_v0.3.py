@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-
-#Development log:
-    # v0.1: initial version
-    # v0.2: add y-limits per feature from file, minor fixes
-    # v0.3: added overview plot of features across all timepoints (not yet committed)
 """
 Production-grade SQLite analysis script for _Per_image tables.
 Extracts, cleans, joins genotype data, and generates curated features with boxplots.
@@ -280,39 +275,6 @@ def load_features_from_file(filepath: str) -> List[str]:
     with open(filepath, 'r') as f:
         return [line.strip() for line in f if line.strip()]
 
-def load_y_limits_from_file(filepath: str) -> dict:
-    """
-    Load per-feature y-axis limits from a text file.
-    Accepted line formats (one per line; comments and blank lines ignored):
-      FeatureA 0 100
-      FeatureA,0,100
-      FeatureA: 0, 100
-      FeatureA\t0\t100
-    Returns: { "FeatureA": (0.0, 100.0), ... }
-    """
-    ymap = {}
-    with open(filepath, "r") as f:
-        for raw in f:
-            line = raw.strip()
-            if not line or line.startswith("#"):
-                continue
-            # Normalize separators: turn :, tabs, multiple spaces into commas
-            line = re.sub(r"[:\t ]+", ",", line)
-            parts = [p for p in line.split(",") if p != ""]
-            if len(parts) < 3:
-                continue
-            feat = parts[0].strip()
-            try:
-                ymin = float(parts[1])
-                ymax = float(parts[2])
-            except ValueError:
-                continue
-            # if ymin > ymax, swap (be forgiving)
-            if ymin > ymax:
-                ymin, ymax = ymax, ymin
-            ymap[feat] = (ymin, ymax)
-    return ymap
-
 
 def create_curated_dataframe(df: pd.DataFrame, features: List[str]) -> pd.DataFrame:
     """Create curated DataFrame with metadata columns, keys, and specified features."""
@@ -353,8 +315,7 @@ def create_curated_dataframe(df: pd.DataFrame, features: List[str]) -> pd.DataFr
 
 
 def create_boxplot(df: pd.DataFrame, feature: str, genotype_col: str, table_name: str, 
-                  output_dir: Path, use_winsorize: bool = False, feature_label: str = None,
-                  y_limits: Optional[Tuple[float, float]] = None):
+                  output_dir: Path, use_winsorize: bool = False, feature_label: str = None):
     """Create and save seaborn boxplot for a feature grouped by genotype with sites clustered per well."""
     
     # Extract timepoint from table name for plot title
@@ -399,16 +360,18 @@ def create_boxplot(df: pd.DataFrame, feature: str, genotype_col: str, table_name
         plot_df[feature] = winsorize(plot_df[feature])
     
     # Set up the plotting style
-    sns.set_style("ticks")
+    sns.set_style("whitegrid")
     plt.rcParams.update({'font.size': 11})
     
     # Create the plot
-    fig, ax = plt.subplots(figsize=(5, 5), dpi=300)  
-    sns.despine()
+    fig, ax = plt.subplots(figsize=(10, 7))
     
     # Create boxplot with seaborn using GnBu palette
     genotypes = sorted(plot_df[genotype_col].unique())
+    n_genotypes = len(genotypes)
     
+    # Create custom GnBu palette
+    gnbu_colors = sns.color_palette("GnBu", n_colors=max(3, n_genotypes))[-n_genotypes:]
     
     # Create the boxplot
     box_plot = sns.boxplot(
@@ -416,11 +379,9 @@ def create_boxplot(df: pd.DataFrame, feature: str, genotype_col: str, table_name
         x=genotype_col, 
         y=feature,
         order=genotypes,
-        palette="GnBu",
-        hue=genotype_col,
-        legend=False,
+        palette=gnbu_colors,
         ax=ax,
-        showfliers=False,  # Show outliers
+        showfliers=True,  # Show outliers
         width=0.6
     )
     
@@ -439,24 +400,22 @@ def create_boxplot(df: pd.DataFrame, feature: str, genotype_col: str, table_name
     
     # Customize the plot
     ax.set_title(f'{feature} by Genotype - {timepoint}', 
-                 fontsize=14, fontweight='bold', pad=20)
+                fontsize=14, fontweight='bold', pad=20)
     ax.set_xlabel('Genotype', fontsize=12, fontweight='bold')
     ax.set_ylabel(feature_label if feature_label else feature, 
-                  fontsize=12, fontweight='bold')
+                 fontsize=12, fontweight='bold')
     
     # Rotate x-axis labels if needed
     plt.setp(ax.get_xticklabels(), rotation=45, ha='right')
     
-  # Apply per-feature y-axis limits when provided
-    if y_limits is not None:
-        try:
-            ax.set_ylim(y_limits[0], y_limits[1])
-        except Exception as e:
-            logger.warning(f"Invalid y-axis limits {y_limits} for {feature}: {e}")
+    # Add sample size annotations
+    for i, genotype in enumerate(genotypes):
+        n_samples = len(plot_df[plot_df[genotype_col] == genotype])
+        ax.text(i, ax.get_ylim()[0], f'n={n_samples}', 
+               ha='center', va='top', fontsize=9, color='gray')
     
     # Improve layout
     plt.tight_layout()
-    sns.despine(ax=ax)
     
     # Save plot with timepoint in filename
     plot_filename = f"boxplot_{timepoint}_{feature}.png"
@@ -467,7 +426,187 @@ def create_boxplot(df: pd.DataFrame, feature: str, genotype_col: str, table_name
     # Reset matplotlib settings
     plt.rcParams.update(plt.rcParamsDefault)
     
-    logger.info(f"Saved seaborn plot: {plot_filename} with genotypes: {genotypes}")
+def create_overview_plot(all_data: dict, features: List[str], output_dir: Path, 
+                        feature_labels: dict = None, use_winsorize: bool = False):
+    """
+    Create comprehensive overview plot with all features across timepoints.
+    
+    Args:
+        all_data: Dictionary with structure {timepoint: {feature: dataframe}}
+        features: List of features to plot
+        output_dir: Output directory path
+        feature_labels: Dictionary mapping feature names to custom labels
+        use_winsorize: Whether to apply winsorization
+    """
+    
+    # Filter features that actually exist in the data
+    available_features = []
+    timepoints = sorted(all_data.keys())
+    
+    for feature in features:
+        # Check if feature exists in at least one timepoint
+        exists = any(feature in all_data[tp] for tp in timepoints if all_data[tp])
+        if exists:
+            available_features.append(feature)
+    
+    if not available_features:
+        logger.warning("No features available for overview plot")
+        return
+    
+    if not timepoints:
+        logger.warning("No timepoints available for overview plot")
+        return
+    
+    n_features = len(available_features)
+    n_timepoints = len(timepoints)
+    
+    logger.info(f"Creating overview plot: {n_features} features × {n_timepoints} timepoints")
+    
+    # Set up the plotting style
+    sns.set_style("ticks")
+    plt.rcParams.update({'font.size': 9})
+    
+    # Dynamic figure sizing based on number of subplots
+    fig_width = max(4 * n_timepoints, 12)  # Minimum 12, scale with timepoints
+    fig_height = max(3 * n_features, 8)    # Minimum 8, scale with features
+    
+    fig, axes = plt.subplots(n_features, n_timepoints, 
+                            figsize=(fig_width, fig_height), dpi=150)
+    
+    # Handle single feature or single timepoint cases
+    if n_features == 1 and n_timepoints == 1:
+        axes = [[axes]]
+    elif n_features == 1:
+        axes = [axes]
+    elif n_timepoints == 1:
+        axes = [[ax] for ax in axes]
+    
+    # Calculate y-limits per feature across all timepoints (1st-99th percentile)
+    feature_y_limits = {}
+    for feature in available_features:
+        all_values = []
+        for tp in timepoints:
+            if tp in all_data and feature in all_data[tp]:
+                df = all_data[tp][feature]
+                if not df.empty:
+                    values = df[feature].dropna()
+                    if use_winsorize:
+                        values = winsorize(values)
+                    all_values.extend(values.tolist())
+        
+        if all_values:
+            q1, q99 = pd.Series(all_values).quantile([0.01, 0.99])
+            # Add 5% padding to limits
+            padding = (q99 - q1) * 0.05
+            feature_y_limits[feature] = (q1 - padding, q99 + padding)
+        else:
+            feature_y_limits[feature] = None
+    
+    # Create subplots
+    for i, feature in enumerate(available_features):
+        for j, timepoint in enumerate(timepoints):
+            ax = axes[i][j]
+            
+            # Check if data exists for this feature-timepoint combination
+            if timepoint not in all_data or feature not in all_data[timepoint]:
+                ax.text(0.5, 0.5, 'No Data', ha='center', va='center', 
+                       transform=ax.transAxes, fontsize=12, color='gray')
+                ax.set_title(f'{timepoint}', fontsize=10, fontweight='bold')
+                continue
+            
+            plot_df = all_data[timepoint][feature].copy()
+            
+            if plot_df.empty:
+                ax.text(0.5, 0.5, 'No Data', ha='center', va='center', 
+                       transform=ax.transAxes, fontsize=12, color='gray')
+                ax.set_title(f'{timepoint}', fontsize=10, fontweight='bold')
+                continue
+            
+            # Apply winsorization if requested
+            if use_winsorize:
+                plot_df[feature] = winsorize(plot_df[feature])
+            
+            # Get genotype column (assume it's the same across all data)
+            genotype_cols = [col for col in plot_df.columns if 'genotype' in col.lower()]
+            if not genotype_cols:
+                ax.text(0.5, 0.5, 'No Genotype', ha='center', va='center', 
+                       transform=ax.transAxes, fontsize=10, color='red')
+                continue
+            
+            genotype_col = genotype_cols[0]
+            genotypes = sorted(plot_df[genotype_col].unique())
+            
+            # Create boxplot
+            sns.boxplot(
+                data=plot_df, 
+                x=genotype_col, 
+                y=feature,
+                order=genotypes,
+                palette="GnBu",
+                ax=ax,
+                showfliers=False,
+                width=0.6
+            )
+            
+            # Add strip plot for individual points
+            sns.stripplot(
+                data=plot_df, 
+                x=genotype_col, 
+                y=feature,
+                order=genotypes,
+                color='black',
+                alpha=0.3,
+                size=1.5,
+                ax=ax,
+                jitter=True
+            )
+            
+            # Set titles and labels
+            if i == 0:  # Top row - add timepoint titles
+                ax.set_title(f'{timepoint}', fontsize=12, fontweight='bold')
+            else:
+                ax.set_title('')
+            
+            if j == 0:  # Left column - add feature labels
+                feature_label = feature_labels.get(feature, feature) if feature_labels else feature
+                ax.set_ylabel(feature_label, fontsize=10, fontweight='bold')
+            else:
+                ax.set_ylabel('')
+            
+            if i == n_features - 1:  # Bottom row - keep x-axis labels
+                ax.set_xlabel('Genotype', fontsize=9)
+                plt.setp(ax.get_xticklabels(), rotation=45, ha='right', fontsize=8)
+            else:
+                ax.set_xlabel('')
+                ax.set_xticklabels([])
+            
+            # Apply calculated y-limits for consistent scaling
+            if feature_y_limits.get(feature):
+                ax.set_ylim(feature_y_limits[feature])
+            
+            # Style the subplot
+            sns.despine(ax=ax)
+            ax.tick_params(axis='y', labelsize=8)
+    
+    # Add overall title
+    fig.suptitle('Feature Analysis Across Timepoints', 
+                fontsize=16, fontweight='bold', y=0.98)
+    
+    # Adjust layout
+    plt.tight_layout()
+    plt.subplots_adjust(top=0.94, hspace=0.3, wspace=0.2)
+    
+    # Save plot
+    overview_filename = f"overview_all_features_timepoints.png"
+    overview_path = output_dir / overview_filename
+    plt.savefig(overview_path, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.close()
+    
+    # Reset matplotlib settings
+    plt.rcParams.update(plt.rcParamsDefault)
+    
+    logger.info(f"Saved overview plot: {overview_filename}")
+    return overview_filename
 
 
 def main():
@@ -486,7 +625,6 @@ def main():
     parser.add_argument("--features-file", help="File with newline-delimited feature list")
     parser.add_argument("--feature-labels", nargs="+", help="Custom y-axis labels for features (same order as --features)")
     parser.add_argument("--labels-file", help="File with newline-delimited y-axis labels (same order as features)")
-    parser.add_argument("--ylims-file", help="Text file mapping features to y-axis limits")
     parser.add_argument("--limit", type=int, help="Row limit for processing")
     parser.add_argument("--winsorize", action="store_true", help="Apply winsorization for plots")
     parser.add_argument("--outdir", default="./outputs", help="Output directory")
@@ -528,7 +666,7 @@ def main():
     logger.info(f"Saved table inventory: {tables_csv_path}")
     
     # Filter _Per_image tables
-    per_image_tables = tables_df[tables_df['table_name'].str.contains(r"T\d+_Per_Image", regex=True)]['table_name'].tolist()
+    per_image_tables = tables_df[tables_df['is_per_image']]['table_name'].tolist()
     logger.info(f"Found {len(per_image_tables)} _Per_image tables: {per_image_tables}")
     
     if args.dry_run:
@@ -589,22 +727,14 @@ def main():
                 feature_labels = dict(zip(curated_features, labels))
         except Exception as e:
             logger.error(f"Failed to load labels file: {e}")
-            
-    # Load per-feature y-axis limits if provided
-    feature_y_limits = {}
-    if args.ylims_file:
-        try:
-            feature_y_limits = load_y_limits_from_file(args.ylims_file)
-            if feature_y_limits:
-                logger.info(f"Loaded y-axis limits for {len(feature_y_limits)} features")
-        except Exception as e:
-            logger.error(f"Failed to load y-limits file: {e}")
-        
     
     # Process each _Per_image table
     processed_tables = []
     join_results = {}
     plot_files = []
+    
+    # Dictionary to store data for overview plot: {timepoint: {feature: dataframe}}
+    overview_data = {}
     
     for table_name in per_image_tables:
         logger.info(f"Processing table: {table_name}")
@@ -681,9 +811,8 @@ def main():
                         try:
                             # Get custom label for this feature
                             custom_label = feature_labels.get(feature, None)
-                            ylims = feature_y_limits.get(feature) if feature_y_limits else None
                             create_boxplot(curated_df, feature, genotype_col, table_name, 
-                                         output_dir, args.winsorize, custom_label, y_limits=ylims)
+                                         output_dir, args.winsorize, custom_label)
                             # Extract timepoint for consistent filename
                             timepoint_match = re.search(r'(T\d+)', table_name, re.IGNORECASE)
                             timepoint = timepoint_match.group(1).upper() if timepoint_match else table_name
@@ -696,6 +825,29 @@ def main():
         except Exception as e:
             logger.error(f"Failed to process table {table_name}: {e}")
             continue
+    
+    # Create comprehensive overview plot if we have data and plotting was requested
+    if overview_data and (args.plot_all or args.table):
+        try:
+            # Get the features that were actually plotted
+            all_features = set()
+            for tp_data in overview_data.values():
+                all_features.update(tp_data.keys())
+            all_features = sorted(list(all_features))
+            
+            if all_features:
+                logger.info("Creating comprehensive overview plot...")
+                overview_file = create_overview_plot(
+                    overview_data, 
+                    all_features, 
+                    output_dir, 
+                    feature_labels, 
+                    args.winsorize
+                )
+                if overview_file:
+                    plot_files.append(overview_file)
+        except Exception as e:
+            logger.error(f"Failed to create overview plot: {e}")
     
     # Generate run report
     report = {
