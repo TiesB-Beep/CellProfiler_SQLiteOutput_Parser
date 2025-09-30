@@ -123,7 +123,7 @@ This inventories the database, enriches each `_Per_image` table with genotype in
 
 ### Table Management
 - `inventory_tables(engine)` → enumerate tables + row counts  
-- `clean_dataframe(df, regex_exclude)` → drop noisy cols  
+- `clean_dataframe(df, regex_exclude)` → drop excluded cols  
 - `load_features_from_file(filepath)` → read features list  
 - `create_curated_dataframe(df, features)` → apply curation & feature selection  
 
