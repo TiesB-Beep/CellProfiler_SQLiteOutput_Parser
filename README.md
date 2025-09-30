@@ -75,7 +75,6 @@ This inventories the database, enriches each `_Per_image` table with genotype in
 | `--features FEATURE... / --features-file FILE` | Feature whitelist |
 | `--feature-labels LABEL... / --labels-file FILE` | Human-readable labels |
 | `--winsorize` | Apply 1st–99th percentile clipping |
-| `--equalize-y-limits` | Harmonise per-feature y-axis limits |
 | `--limit N` | Limit number of rows retrieved |
 | `--dry-run` | List tables without reading/writing data |
 | `--force-refresh` | Ignore cached CSVs and re-read tables |
