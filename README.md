@@ -4,16 +4,6 @@ Automated curation, enrichment, and visualization of CellProfiler `_Per_image` S
 
 ---
 
-## Repository Structure
-```plaintext
-CellProfiler_SQLiteOutput_Parser/
-├── SQLite_parser_v0.3.py
-├── SQLite_parser_v0.5.py
-└── SQLite_parser_v0.6.py
-```
-
----
-
 ## Overview
 The parser inventories every table in a CellProfiler SQLite database, optionally merges genotype annotations, converts area features into square micrometers, and generates curated CSV extracts alongside genotype-stratified box plots and overview dashboards for each `_Per_image` table.  
 
