@@ -41,7 +41,7 @@ Legacy scripts (v0.3, v0.5) remain for back-compatibility snapshots.
 ### Prerequisites
 - **Conda** (Miniconda/Anaconda)  
 - **Python 3.10+**  
-- Packages: `pandas`, `matplotlib`, `seaborn`, `sqlalchemy`  
+- Packages: `pandas`, `matplotlib`, `seaborn`, `sqlalchemy`, `argparse`, `json`, `logging`, `re`, `sys`, `pathlib`, `typing`, `datetime`  
 - A CellProfiler-generated SQLite database file containing `_Per_image` tables  
 
 ### Installation
