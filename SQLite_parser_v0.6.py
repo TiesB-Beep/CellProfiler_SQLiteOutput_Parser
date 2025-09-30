@@ -802,7 +802,6 @@ def main():
     parser.add_argument("--labels-file", help="File with newline-delimited y-axis labels (same order as features)")
     parser.add_argument("--limit", type=int, help="Row limit for processing")
     parser.add_argument("--winsorize", action="store_true", help="Apply winsorization for plots")
-    parser.add_argument('--equalize-y-limits', action='store_true', help='Equalize per-feature y-axis using 1st-99th percentile across timepoints')
     parser.add_argument("--outdir", default="./outputs", help="Output directory")
     parser.add_argument("--strict-join", action="store_true", help="Fail if join coverage below threshold")
     parser.add_argument("--min-coverage", type=float, default=0.95, help="Minimum join coverage threshold")
@@ -1065,8 +1064,6 @@ def main():
             else:
                 logger.warning(f"Cannot create plots for {table_name}: no genotype column available")
     feature_limits: Dict[str, Tuple[float, float]] = {}
-    if plot_jobs and args.equalize_y_limits:
-        feature_limits = compute_feature_y_limits(plot_jobs, use_winsorize=args.winsorize)
 
     for job in plot_jobs:
         try:
@@ -1079,8 +1076,7 @@ def main():
                 args.winsorize,
                 job['feature_label'],
                 plot_df=job['plot_df'],
-                timepoint_override=job['timepoint'],
-                y_limits=feature_limits.get(job['feature']) if args.equalize_y_limits else None,
+                timepoint_override=job['timepoint']
             )
             if plot_filename:
                 plot_files.append(plot_filename)
@@ -1108,7 +1104,6 @@ def main():
                     output_dir,
                     feature_labels,
                     args.winsorize,
-                    feature_y_limits=feature_limits if args.equalize_y_limits else None
                 )
                 if overview_file:
                     plot_files.append(overview_file)
@@ -1142,7 +1137,6 @@ def main():
             'regex_exclude': args.regex_exclude,
             'curated_features': curated_features,
             'winsorize': args.winsorize,
-            'equalize_y_limits': args.equalize_y_limits,
             'min_coverage': args.min_coverage,
             'strict_join': args.strict_join,
             'area_conversion_factor': AREA_CONVERSION_FACTOR
