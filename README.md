@@ -108,7 +108,6 @@ This inventories the database, enriches each `_Per_image` table with genotype in
 - `order_genotypes(vals)` → consistent ordering  
 - `prepare_plot_dataframe(df, feature, genotype_col)` → prep data for plots  
 - `build_replicate_summary(...)` → per-well averages for overlays  
-- `compute_feature_y_limits(...)` → derive percentile-based y-axis limits  
 
 ### Table Management
 - `inventory_tables(engine)` → enumerate tables + row counts  
@@ -161,23 +160,6 @@ Seaborn visualisation"]
 
 ---
 
-## Deployment
-- **TODO:** Package CLI for pipx/Conda distribution  
+## Roadmap  
+- **TODO:** Provide example SQLite DB + feature list + label list  
 
----
-
-## Roadmap / Limitations
-- Align `_Per_image` regex across v0.5/v0.6  
-- Document area conversion factor assumptions  
-- **TODO:** Provide example SQLite DB + feature list  
-
----
-
-## Contributing
-- Fork the repo, create feature branches, submit PRs  
-- **TODO:** Add CONTRIBUTING guide with coding standards  
-
----
-
-## License
-- **TODO:** Publish explicit license  
