@@ -9,11 +9,8 @@ The parser inventories every table in a CellProfiler SQLite database, optionally
 
 The latest workflow (**v0.6**) adds:  
 - Replicate-aware overlays  
-- Per-feature y-axis harmonisation  
 - Cached CSV reuse  
-- A JSON run report that captures parameters, join coverage, and generated artifacts  
-
-Legacy scripts (v0.3, v0.5) remain for back-compatibility snapshots.  
+- A JSON run report that captures parameters, join coverage, and generated artifacts   
 
 ---
 
@@ -64,7 +61,6 @@ This inventories the database, enriches each `_Per_image` table with genotype in
 | `--regex-exclude PATTERN` | Drop matching columns before curation |
 | `--features FEATURE... / --features-file FILE` | Feature whitelist |
 | `--feature-labels LABEL... / --labels-file FILE` | Human-readable labels |
-| `--winsorize` | Apply 1st–99th percentile clipping |
 | `--limit N` | Limit number of rows retrieved |
 | `--dry-run` | List tables without reading/writing data |
 | `--force-refresh` | Ignore cached CSVs and re-read tables |
@@ -79,7 +75,7 @@ This inventories the database, enriches each `_Per_image` table with genotype in
 2. **Filter** – Detect `_Per_image` tables  
 3. **Enrich** – Merge genotype metadata, compute coverage stats  
 4. **Extract** – Query tables, drop noisy cols, convert areas, emit CSVs  
-5. **Plot** – Winsorize, overlay replicates, generate per-feature plots & dashboards  
+5. **Plot** – Overlay replicates, generate per-feature plots & dashboards  
 6. **Report** – Write `run_report.json` summarising parameters + artifacts  
 
 **Generated assets**:  
@@ -103,7 +99,6 @@ This inventories the database, enriches each `_Per_image` table with genotype in
 ### Metadata & Normalisation
 - `_ddmmyy_to_iso(d)` → converts dates  
 - `infer_metadata(df)` → extracts project/batch/date metadata  
-- `winsorize(series, pct=1–99)` → percentile clipping  
 - `convert_area_columns(df)` → converts areas to µm²  
 - `order_genotypes(vals)` → consistent ordering  
 - `prepare_plot_dataframe(df, feature, genotype_col)` → prep data for plots  
@@ -147,7 +142,6 @@ Seaborn visualisation"]
     Curated --> Outputs["clean_*.csv & curated_*.csv"]
     Plots --> OutputPNGs["boxplot_*.png & overview.png"]
 ```
-
 ---
 
 ## Development
@@ -156,7 +150,6 @@ Seaborn visualisation"]
 - Use `--limit` for fast prototyping  
 - Use `--force-refresh` after DB updates  
 - Use `--strict-join` + `--min-coverage` for metadata QC  
-- **TODO:** Add automated tests & linting  
 
 ---
 
