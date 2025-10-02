@@ -17,7 +17,7 @@ The latest workflow (**v0.6**) adds:
 ## Key Features
 - SQLite schema inventory with fast row counts and `_Per_image` table detection  
 - Automated join-key discovery and coverage reporting for genotype enrichment  
-- Area unit conversion, feature curation, and optional winsorization/outlier handling  
+- Area unit conversion, feature curation, and outlier handling  
 - Replicate-level overlays and global overview grids with shared y-axis scales  
 - JSON run report + persisted CSV/PNG artifacts for reproducibility  
 
