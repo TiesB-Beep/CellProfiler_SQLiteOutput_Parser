@@ -233,12 +233,6 @@ def infer_metadata(df: pd.DataFrame, logger=None) -> pd.DataFrame:
     return out
 
 
-def winsorize(series: pd.Series, lower_pct=1, upper_pct=99) -> pd.Series:
-    """Cap values at specified percentiles for plotting."""
-    q_lower = series.quantile(lower_pct / 100.0)
-    q_upper = series.quantile(upper_pct / 100.0)
-    return series.clip(lower=q_lower, upper=q_upper)
-
 
 def convert_area_columns(
     df: pd.DataFrame,
@@ -344,69 +338,6 @@ def build_replicate_summary(
 
 
 
-def compute_feature_y_limits(
-    plot_jobs: List[Dict[str, Any]],
-    use_winsorize: bool = False,
-    lower_pct: float = 1.0,
-    upper_pct: float = 99.0,
-    padding_fraction: float = 0.1,
-) -> Dict[str, Tuple[float, float]]:
-    """Calculate per-feature y-axis limits that fully capture plotted whiskers."""
-    feature_values: Dict[str, List[pd.Series]] = {}
-
-    for job in plot_jobs:
-        plot_df = job.get('plot_df')
-        feature = job.get('feature')
-        if plot_df is None or feature is None:
-            continue
-        if plot_df.empty or feature not in plot_df.columns:
-            continue
-
-        values = plot_df[feature].dropna()
-        if values.empty:
-            continue
-
-        if use_winsorize:
-            values = winsorize(values)
-
-        values = pd.to_numeric(values, errors='coerce').dropna()
-        if values.empty:
-            continue
-
-        feature_values.setdefault(feature, []).append(values)
-
-    limits: Dict[str, Tuple[float, float]] = {}
-
-    for feature, series_list in feature_values.items():
-        combined = pd.concat(series_list, ignore_index=True)
-        combined = pd.to_numeric(combined, errors='coerce').dropna()
-        if combined.empty:
-            continue
-
-        lower_q = combined.quantile(lower_pct / 100.0)
-        upper_q = combined.quantile(upper_pct / 100.0)
-        if pd.isna(lower_q) or pd.isna(upper_q):
-            continue
-
-        data_min = combined.min()
-        data_max = combined.max()
-
-        if upper_q == lower_q:
-            padding = abs(upper_q) * padding_fraction if upper_q != 0 else padding_fraction
-        else:
-            padding = (upper_q - lower_q) * padding_fraction
-
-        lower_bound = min(lower_q - padding, data_min)
-        upper_bound = max(upper_q + padding,data_max)
-
-        if lower_bound == upper_bound:
-            delta = abs(lower_bound) * padding_fraction if lower_bound != 0 else padding_fraction
-            lower_bound -= delta
-            upper_bound += delta
-
-        limits[feature] = (float(lower_bound), float(upper_bound))
-
-    return limits
 def inventory_tables(engine) -> pd.DataFrame:
     """Inventory all tables with row counts and _Per_image detection."""
     inspector = inspect(engine)
@@ -491,7 +422,6 @@ def create_boxplot(
     genotype_col: str,
     table_name: str,
     output_dir: Path,
-    use_winsorize: bool = False,
     feature_label: str = None,
     plot_df: Optional[pd.DataFrame] = None,
     timepoint_override: Optional[str] = None,
@@ -536,10 +466,6 @@ def create_boxplot(
             summary = '; '.join(well_info)
             logger.info(f"Well clustering for {feature} ({timepoint}): {summary}")
 
-    # Apply winsorization for plotting only
-    if use_winsorize:
-        plot_df = plot_df.copy()
-        plot_df[feature] = winsorize(plot_df[feature])
 
     # Remove negative values (and optionally zeros) that don't make biological sense (NEW)
     original_count = len(plot_df)
@@ -627,9 +553,8 @@ def create_boxplot(
     return plot_filename
 
 def create_overview_plot(all_data: dict, features: List[str], output_dir: Path,
-                        feature_labels: dict = None, use_winsorize: bool = False,
-                        feature_y_limits: Optional[Dict[str, Tuple[float, float]]] = None):
-    """Create overview grid of features across timepoints with optional shared y-limits."""
+                                                 feature_labels: dict = None):
+    """Create overview grid of features across timepoints with shared y-axes."""
 
     available_features = []
     timepoints = sorted(all_data.keys())
@@ -655,7 +580,7 @@ def create_overview_plot(all_data: dict, features: List[str], output_dir: Path,
     plt.rcParams.update({'font.size': 11})
     fig_width = max(4 * n_timepoints, 12)
     fig_height = max(3 * n_features, 8)
-    fig, axes = plt.subplots(n_features, n_timepoints, figsize=(fig_width, fig_height), dpi=150)
+    fig, axes = plt.subplots(n_features, n_timepoints, figsize=(fig_width, fig_height), dpi=150, sharey='row')
 
     if n_features == 1 and n_timepoints == 1:
         axes = [[axes]]
@@ -664,27 +589,6 @@ def create_overview_plot(all_data: dict, features: List[str], output_dir: Path,
     elif n_timepoints == 1:
         axes = [[ax] for ax in axes]
 
-    limits = dict(feature_y_limits) if feature_y_limits else {}
-    if not limits:
-        synthetic_jobs: List[Dict[str, Any]] = []
-        for timepoint in timepoints:
-            tp_features = all_data.get(timepoint, {}) or {}
-            for feature in available_features:
-                plot_df = tp_features.get(feature)
-                if plot_df is None or plot_df.empty:
-                    continue
-                if feature not in plot_df.columns:
-                    continue
-                synthetic_jobs.append({'feature': feature, 'plot_df': plot_df})
-
-        if synthetic_jobs:
-            limits = compute_feature_y_limits(
-                synthetic_jobs,
-                use_winsorize=use_winsorize,
-                lower_pct=1.0,
-                upper_pct=99.0,
-                padding_fraction=0.05,
-            )
 
     for i, feature in enumerate(available_features):
         for j, timepoint in enumerate(timepoints):
@@ -703,8 +607,6 @@ def create_overview_plot(all_data: dict, features: List[str], output_dir: Path,
                 ax.set_title(f'{timepoint}', fontsize=10, fontweight='bold')
                 continue
 
-            if use_winsorize:
-                plot_df[feature] = winsorize(plot_df[feature])
 
             genotype_cols = [col for col in plot_df.columns if 'genotype' in col.lower()]
             if not genotype_cols:
@@ -752,34 +654,20 @@ def create_overview_plot(all_data: dict, features: List[str], output_dir: Path,
                 ax.set_title(f'{timepoint}', fontsize=12, fontweight='bold')
             else:
                 ax.set_title('')
-
-            if j == 0:
-                feature_label = feature_labels.get(feature, feature) if feature_labels else feature
-                ax.set_ylabel(feature_label, fontsize=12, fontweight='bold')
-            else:
-                ax.set_ylabel('')
-
-            if i == n_features - 1:
-                ax.set_xlabel('Genotype', fontsize=12)
-                plt.setp(ax.get_xticklabels(), rotation=45, ha='right', fontsize=12)
-            else:
-                ax.set_xlabel('')
-                ax.set_xticklabels([])
-
-            limit = limits.get(feature)
-            if limit:
-                ax.set_ylim(limit)
-
-            sns.despine(ax=ax)
-            ax.tick_params(axis='y', labelsize=12)
+            feature_label = feature_labels.get(feature, feature) if feature_labels else feature
+            ax.set_ylabel(feature_label, fontsize=12, fontweight='bold')
+            ax.set_xlabel('Genotype', fontsize=12)
+            plt.setp(ax.get_xticklabels(), rotation=45, ha='right', fontsize=12)
+            ax.tick_params(axis='y', labelsize=12, labelleft=True, left=True)
 
     plt.tight_layout()
     plt.subplots_adjust(top=0.94, hspace=0.3, wspace=0.2)
 
     overview_filename = "overview_all_features_timepoints.png"
     overview_path = output_dir / overview_filename
-    plt.savefig(overview_path, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.savefig(overview_path, dpi=150, bbox_inches="tight", facecolor="white")
     plt.close()
+
     plt.rcParams.update(plt.rcParamsDefault)
 
     logger.info(f"Saved overview plot: {overview_filename}")
@@ -801,7 +689,6 @@ def main():
     parser.add_argument("--feature-labels", nargs="+", help="Custom y-axis labels for features (same order as --features)")
     parser.add_argument("--labels-file", help="File with newline-delimited y-axis labels (same order as features)")
     parser.add_argument("--limit", type=int, help="Row limit for processing")
-    parser.add_argument("--winsorize", action="store_true", help="Apply winsorization for plots")
     parser.add_argument("--outdir", default="./outputs", help="Output directory")
     parser.add_argument("--strict-join", action="store_true", help="Fail if join coverage below threshold")
     parser.add_argument("--min-coverage", type=float, default=0.95, help="Minimum join coverage threshold")
@@ -815,7 +702,7 @@ def main():
     if args.example:
         print("Example usage:")
         print("  python analyze_sqlite.py --db ./my.db")
-        print("  python analyze_sqlite.py --db ./my.db --table Run1_Per_image --join-table PlateMap --features-file ./features.txt --winsorize")
+        print("  python analyze_sqlite.py --db ./my.db --table Run1_Per_image --join-table PlateMap --features-file ./features.txt")
         return
     
     # Setup output directory
@@ -1063,7 +950,6 @@ def main():
                         logger.error(f"Failed to prepare plot data for {feature} in {table_name}: {e}")
             else:
                 logger.warning(f"Cannot create plots for {table_name}: no genotype column available")
-    feature_limits: Dict[str, Tuple[float, float]] = {}
 
     for job in plot_jobs:
         try:
@@ -1073,7 +959,6 @@ def main():
                 job['genotype_col'],
                 job['table_name'],
                 output_dir,
-                args.winsorize,
                 job['feature_label'],
                 plot_df=job['plot_df'],
                 timepoint_override=job['timepoint']
@@ -1103,7 +988,6 @@ def main():
                     all_features,
                     output_dir,
                     feature_labels,
-                    args.winsorize,
                 )
                 if overview_file:
                     plot_files.append(overview_file)
@@ -1136,7 +1020,6 @@ def main():
         'parameters': {
             'regex_exclude': args.regex_exclude,
             'curated_features': curated_features,
-            'winsorize': args.winsorize,
             'min_coverage': args.min_coverage,
             'strict_join': args.strict_join,
             'area_conversion_factor': AREA_CONVERSION_FACTOR
@@ -1169,6 +1052,20 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
